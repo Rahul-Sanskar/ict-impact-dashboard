@@ -413,49 +413,296 @@ DATABASE_URL=postgresql://username:password@localhost/dbname
 - `POST /api/admin/training/retrain` - Retrain ML models
 - `GET /api/admin/training/status` - Get training status
 
+## 🚀 Production Deployment
+
+This section provides step-by-step deployment instructions for production environments using Vercel (frontend) and Render (backend).
+
+### **Architecture Overview**
+
+```
+┌─────────────────┐          ┌──────────────────┐
+│                 │          │                  │
+│  Vercel         │ HTTPS   │  Render          │
+│  (Frontend)     │◄────────┤  (Backend API)   │
+│  React + Vite   │          │  FastAPI         │
+│                 │          │                  │
+└─────────────────┘          └──────────────────┘
+                                      │
+                                      │
+                              ┌───────▼────────┐
+                              │                │
+                              │  PostgreSQL    │
+                              │  (Neon/Render) │
+                              │                │
+                              └────────────────┘
+```
+
+### **Backend Deployment to Render**
+
+#### **Step 1: Prepare Backend Repository**
+
+Ensure your backend is ready for production:
+
+1. **Verify `render.yaml` exists** in the `backend/` directory:
+   ```yaml
+   services:
+     - type: web
+       name: ict-impact-dashboard-backend
+       runtime: python
+       pythonVersion: 3.11
+       buildCommand: "pip install -r requirements.txt"
+       startCommand: "uvicorn app.main:app --host 0.0.0.0 --port $PORT"
+   ```
+
+2. **Verify requirements are pinned** (`backend/requirements.txt`):
+   - All packages should have specific versions for reproducibility
+   - Current supported packages are listed in requirements.txt
+
+3. **Database setup**: Configure PostgreSQL connection string
+   - Render provides free PostgreSQL databases
+   - Neon (neon.tech) offers PostgreSQL with automatic backups
+
+#### **Step 2: Create Render Account & Database**
+
+1. Go to [render.com](https://render.com)
+2. Sign up and create a new account
+3. **Create PostgreSQL Database**:
+   - New → PostgreSQL
+   - Name: `ict-dashboard-db`
+   - Region: Select closest to your users
+   - Copy the connection string (full database URL)
+
+#### **Step 3: Deploy Backend to Render**
+
+1. **Connect Repository**:
+   - New → Web Service
+   - Connect your GitHub repository
+   - Select `backend/` root directory
+
+2. **Configure Environment**:
+   ```
+   Name:                  ict-impact-dashboard-backend
+   Environment:           Python
+   Build Command:         pip install -r requirements.txt
+   Start Command:         uvicorn app.main:app --host 0.0.0.0 --port $PORT
+   ```
+
+3. **Add Environment Variables** in Render dashboard:
+   ```env
+   DATABASE_URL=<your-postgresql-connection-string>
+   CORS_ORIGINS=https://your-frontend-domain.vercel.app,https://www.your-frontend-domain.vercel.app
+   PORT=8000
+   ENVIRONMENT=production
+   SECRET_KEY=<generate-a-strong-random-key>
+   ```
+
+4. **Deploy**:
+   - Click "Create Web Service"
+   - Wait for build to complete (~3-5 minutes)
+   - Note the backend URL: `https://ict-impact-dashboard-backend.render.com`
+
+#### **Step 4: Initialize Production Database**
+
+After deployment, initialize the database:
+
+```bash
+# SSH into Render service or use a temporary build command
+# The database will auto-initialize on first request
+# Verify health endpoint:
+curl https://ict-impact-dashboard-backend.render.com/health
+# Response: {"status":"healthy"}
+```
+
+---
+
+### **Frontend Deployment to Vercel**
+
+#### **Step 1: Prepare Frontend Repository**
+
+1. **Verify `vercel.json` exists** in the `frontend/` directory:
+   ```json
+   {
+     "buildCommand": "npm run build",
+     "outputDirectory": "dist",
+     "rewrites": [
+       {
+         "source": "/(.*)",
+         "destination": "/index.html"
+       }
+     ]
+   }
+   ```
+
+2. **Ensure `.env.example` exists** with template:
+   ```env
+   VITE_API_URL=http://localhost:8000
+   ```
+
+#### **Step 2: Create Vercel Account**
+
+1. Go to [vercel.com](https://vercel.com)
+2. Sign up with GitHub
+3. Grant repository access
+
+#### **Step 3: Deploy Frontend to Vercel**
+
+1. **Import Project**:
+   - Dashboard → Add New → Project
+   - Import your GitHub repository
+   - Select `frontend/` root directory
+
+2. **Configure Build Settings**:
+   ```
+   Framework:          Vite
+   Build Command:      npm run build
+   Output Directory:   dist
+   Install Command:    npm install
+   ```
+
+3. **Add Environment Variables** in Vercel dashboard:
+   ```env
+   VITE_API_URL=https://ict-impact-dashboard-backend.render.com
+   ```
+
+   ⚠️ **Important**: Make sure `VITE_API_URL` starts with `https://` and matches your Render backend URL
+
+4. **Deploy**:
+   - Click "Deploy"
+   - Wait for build to complete (~1-2 minutes)
+   - Note the frontend URL: `https://ict-dashboard.vercel.app`
+
+#### **Step 4: Update Backend CORS**
+
+Update the backend CORS environment variable on Render:
+
+1. Go to Render dashboard
+2. Select your backend service
+3. Environment → Edit
+4. Update `CORS_ORIGINS`:
+   ```env
+   CORS_ORIGINS=https://ict-dashboard.vercel.app,https://www.ict-dashboard.vercel.app
+   ```
+5. Save and redeploy
+
+---
+
+### **Database Setup (PostgreSQL)**
+
+#### **Option 1: Render PostgreSQL (Recommended)**
+
+Free PostgreSQL with Render:
+
+1. New → PostgreSQL
+2. Database name: `ict-dashboard-db`
+3. Copy connection string to backend environment: `DATABASE_URL`
+
+#### **Option 2: Neon (Free Tier)**
+
+Neon provides free PostgreSQL with automatic backups:
+
+1. Go to [neon.tech](https://neon.tech)
+2. Sign up and create project
+3. Copy connection string: `postgresql://user:password@host/database`
+4. Add to Render backend `DATABASE_URL`
+
+#### **Option 3: Self-Hosted PostgreSQL**
+
+For existing PostgreSQL instances:
+
+1. Ensure PostgreSQL is accessible from Render
+2. Create database: `CREATE DATABASE ict_dashboard;`
+3. Set `DATABASE_URL` to connection string
+4. Run migrations if applicable
+
+---
+
+### **Custom Domain Setup**
+
+#### **Frontend Domain (Vercel)**
+
+1. Vercel dashboard → Project → Settings → Domains
+2. Add your domain: `dashboard.yourdomain.com`
+3. Update DNS records according to Vercel instructions
+4. Update backend CORS with new domain
+
+#### **Backend Domain (Render)**
+
+1. Render dashboard → Backend service → Settings → Render Domains
+2. Add custom domain or use Render's default
+3. Update frontend `VITE_API_URL` environment variable
+
+---
+
+### **Environment Variables Checklist**
+
+#### **Backend (Render)**
+- ✅ `DATABASE_URL` - PostgreSQL connection string
+- ✅ `CORS_ORIGINS` - Frontend domain(s)
+- ✅ `SECRET_KEY` - Strong random string for JWT
+- ✅ `PORT` - Set to 8000
+- ✅ `ENVIRONMENT` - Set to production
+
+#### **Frontend (Vercel)**
+- ✅ `VITE_API_URL` - Backend URL (https://...)
+
+---
+
+### **Post-Deployment Verification**
+
+1. **Test API Health**:
+   ```bash
+   curl https://ict-impact-dashboard-backend.render.com/health
+   # Expected: {"status":"healthy"}
+   ```
+
+2. **Test Frontend Load**:
+   - Visit https://ict-dashboard.vercel.app
+   - Check browser console for no CORS errors
+   - Verify API calls work
+
+3. **Test Authentication**:
+   - Create a new account
+   - Login with credentials
+   - Verify token is stored in localStorage
+
+4. **Test Data Operations**:
+   - Submit a survey response
+   - Verify it appears in analytics
+   - Download a report
+
+---
+
+### **Monitoring & Logging**
+
+#### **Render Logs**
+```bash
+# View real-time logs
+Render Dashboard → Service → Logs
+```
+
+#### **Frontend Errors**
+- Vercel dashboard → Deployments → Function Logs
+- Check browser DevTools console
+
+#### **Database Health**
+- Render → PostgreSQL service → Metrics
+- Monitor connections and query performance
+
+---
+
+### **Troubleshooting Deployment**
+
+| Issue | Solution |
+|-------|----------|
+| **CORS errors in browser** | Update `CORS_ORIGINS` in backend to match frontend domain |
+| **Frontend can't reach API** | Verify `VITE_API_URL` uses `https://` and matches Render URL |
+| **Database connection failed** | Check `DATABASE_URL` format and network access |
+| **Build fails on Vercel** | Check build logs, ensure `dist/` directory is created |
+| **Build fails on Render** | Verify `requirements.txt` is in backend directory |
+
+---
+
 ## 🚀 Deployment
-
-### **Frontend Deployment (Vercel/Netlify)**
-
-1. Build the frontend:
-```bash
-cd frontend
-npm run build
-```
-
-2. Deploy the `dist/` folder to your hosting service
-
-3. Set environment variables:
-```env
-VITE_API_URL=https://your-backend-url.com
-```
-
-### **Backend Deployment (Railway/Render/Heroku)**
-
-1. Use the provided Dockerfile:
-```dockerfile
-FROM python:3.10-slim
-WORKDIR /app
-COPY requirements.txt .
-RUN pip install -r requirements.txt
-COPY . .
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
-```
-
-2. Set environment variables for production
-
-3. Ensure database is properly configured
-
-### **Docker Deployment**
-
-```bash
-# Build and run with Docker Compose
-docker-compose up --build
-
-# Or build manually
-docker build -t ict-dashboard-backend ./backend
-docker build -t ict-dashboard-frontend ./frontend
-```
 
 ## 🧪 Testing
 
